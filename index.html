@@ -608,7 +608,7 @@ function updateSilentEMP(dt){
     const R=80, sh=S.ship; (S.empRings=S.empRings||[]).push({r:14,a:0.85});
     for (let i=S.meteors.length-1;i>=0;i--){ const m=S.meteors[i];
       if (dist(m.x,m.y,sh.x,sh.y)<R+m.r){ spawnBurst(m.x,m.y,COL.cyan); S.meteorsRammed=(S.meteorsRammed||0)+1; S.meteors.splice(i,1); } }
-    playBlip(440,0.05);
+    sfxEMP();
   }
 }
 function drawEMRings(){
@@ -655,14 +655,14 @@ function applyDamage(dmg,x,y){
     const before=S.shieldHp;
     S.shieldHp=clamp(before-dmg,0,100);
     const overflow=dmg-before; if(overflow>0) S.hull=clamp(S.hull-overflow,0,S.hullMax);
-    fx.shake=Math.max(fx.shake,6); playBlip(230,0.10); if(x!=null) spawnBurst(x,y,COL.ui);
+    fx.shake=Math.max(fx.shake,6); sfxHitShield(); if(x!=null) spawnBurst(x,y,COL.ui);
     if (before>0 && S.shieldHp<=0) toast('‹警告› 护盾耗尽——为护盾供能(按 2)充能，否则撞击直击船体！', COL.warn,2800);
   } else {
     S.hull=clamp(S.hull-dmg,0,S.hullMax);
     fx.shake=Math.max(fx.shake,11); fx.flash=Math.max(fx.flash,0.5); fx.spike=Math.min(1,fx.spike+0.25);
     addHitStop(40);                                  // ★ 船体受创：短顿帧强调"被击穿"的重量
     crisisHit(3.5);                                  // ★ 打得越狼狈，受损系统越快逼你抉择
-    playBlip(90,0.14); if(x!=null) spawnBurst(x,y,COL.bad);
+    sfxHitHull(); if(x!=null) spawnBurst(x,y,COL.bad);
   }
   if (S.hull<=0 && S.phase!=='crashed') triggerCrash();
 }
@@ -713,17 +713,17 @@ function fireWeapon(aimAng){
   if (mode==='spread'){ emit(ang,0,base*0.52); emit(ang-0.17,0,base*0.52); emit(ang+0.17,0,base*0.52); }   // 散射：3 路覆盖
   else if (mode==='twin'){ emit(ang,-5,base*0.64); emit(ang,5,base*0.64); }                                // 双发：两道平行
   else emit(ang,0,base);                                                                                    // 单发：聚焦
-  S.fireCd=255*fireCdFactor(); playBlip(700,0.05);                       // ★ 过载：替换越多射速越快
+  S.fireCd=255*fireCdFactor(); sfxShoot();                                // ★ 过载：替换越多射速越快
 }
 function updateBolts(dt){
   for (let i=S.bolts.length-1;i>=0;i--){ const b=S.bolts[i]; b.x+=b.vx*dt; b.y+=b.vy*dt; b.life-=dt; let hit=false;
-    for (const e of S.enemies){ if(e.sparing) continue; if(dist(b.x,b.y,e.x,e.y)<e.r+4){ e.hp-=(b.dmg||14); spawnBurst(b.x,b.y,COL.cyan); hit=true; break; } }
+    for (const e of S.enemies){ if(e.sparing) continue; if(dist(b.x,b.y,e.x,e.y)<e.r+4){ e.hp-=(b.dmg||14); spawnBurst(b.x,b.y,COL.cyan); sfxHitTick(); hit=true; break; } }
     if (!hit) for (let j=S.meteors.length-1;j>=0;j--){ const m=S.meteors[j];
-      if (dist(b.x,b.y,m.x,m.y)<m.r+4){ m.hp-=1; if(m.hp<=0){ spawnBurst(m.x,m.y,COL.warn); maybeDrop(m.x,m.y,0.12); S.meteors.splice(j,1); S.meteorsKilled=(S.meteorsKilled||0)+1; } else spawnBurst(b.x,b.y,COL.warn); hit=true; break; } }
+      if (dist(b.x,b.y,m.x,m.y)<m.r+4){ m.hp-=1; if(m.hp<=0){ spawnBurst(m.x,m.y,COL.warn); sfxCrack(); maybeDrop(m.x,m.y,0.12); S.meteors.splice(j,1); S.meteorsKilled=(S.meteorsKilled||0)+1; } else { spawnBurst(b.x,b.y,COL.warn); sfxHitTick(); } hit=true; break; } }
     if (hit||b.life<=0||b.x<-20||b.x>W+20||b.y<-20||b.y>H+20) S.bolts.splice(i,1);
   }
   for (let i=S.enemies.length-1;i>=0;i--){ if(!S.enemies[i].sparing && S.enemies[i].hp<=0){ const e=S.enemies[i];
-    spawnBurst(e.x,e.y,e.col||COL.bad); spawnBurst(e.x,e.y,'#ffffff'); fx.shake=Math.max(fx.shake,7); addHitStop(55); G.materials=Math.min(999,G.materials+6);
+    spawnBurst(e.x,e.y,e.col||COL.bad); spawnBurst(e.x,e.y,'#ffffff'); fx.shake=Math.max(fx.shake,7); addHitStop(55); sfxExplode(0.3); haptic([35]); G.materials=Math.min(999,G.materials+6);
     G.killed=(G.killed||0)+1;   // ★ 击落另一个自己 —— 计入结局结算
     maybeDrop(e.x,e.y,0.5);   // ★ 敌舰掉落弹药/护盾补给（正反馈，缓解死亡螺旋）
     toast('‹击毁› '+(e.name||'敌舰')+' 被摧毁  (+6 资源)', COL.ui,1800); S.enemies.splice(i,1); } }
@@ -869,7 +869,7 @@ function updateEnemies(dt){
     } else {
       e.fireCd-=dt; if (e.fireCd<=0 && d<380){ e.fireCd=e.fireMin+Math.random()*e.fireRange;
         const a=Math.atan2(sh.y-e.y,sh.x-e.x), bs=e.type==='rusher'?0.40:0.34;
-        S.ebolts.push({x:e.x+Math.cos(a)*14,y:e.y+Math.sin(a)*14,vx:Math.cos(a)*bs,vy:Math.sin(a)*bs,life:2600,dmg:e.dmg,col:e.col}); playBlip(150,0.05); }
+        S.ebolts.push({x:e.x+Math.cos(a)*14,y:e.y+Math.sin(a)*14,vx:Math.cos(a)*bs,vy:Math.sin(a)*bs,life:2600,dmg:e.dmg,col:e.col}); sfxEnemyShot(); }
     }
   }
   // ★ 被放走的敌舰漂出画面 → 移除（不计入击毁、不掉落）
@@ -1257,6 +1257,81 @@ function startCineDrone(){ if(audioMuted) return; const bus=sfxBus(); if(!bus||_
   o.connect(lp); o2.connect(lp); lp.connect(g); g.connect(bus); o.start(t0); o2.start(t0); _cineDrone={o:o,o2:o2,g:g}; }
 function stopCineDrone(){ try{ if(_cineDrone && _actx){ const d=_cineDrone, t0=_actx.currentTime; d.g.gain.setTargetAtTime(0.0001,t0,0.25);
   setTimeout(function(){ try{ d.o.stop(); d.o2.stop(); }catch(e){} }, 700); _cineDrone=null; } }catch(e){} }
+
+/* ★ 战斗音效（短促轻量 · 走 _sfxGain 总线 · 受 M 静音控制）。开火声刻意做轻——它响得最勤。 */
+function sfxShoot(){ if(audioMuted) return; const bus=sfxBus(); if(!bus) return; const a=_actx,t0=a.currentTime;
+  const o=a.createOscillator(),g=a.createGain(),f=a.createBiquadFilter(); o.type='triangle';
+  o.frequency.setValueAtTime(880,t0); o.frequency.exponentialRampToValueAtTime(300,t0+0.07); f.type='lowpass'; f.frequency.value=2200;
+  g.gain.setValueAtTime(0.0001,t0); g.gain.exponentialRampToValueAtTime(0.038,t0+0.004); g.gain.exponentialRampToValueAtTime(0.0001,t0+0.1);
+  o.connect(f); f.connect(g); g.connect(bus); o.start(t0); o.stop(t0+0.12); }
+function sfxEnemyShot(){ if(audioMuted) return; const bus=sfxBus(); if(!bus) return; const a=_actx,t0=a.currentTime;
+  const o=a.createOscillator(),g=a.createGain(); o.type='sawtooth'; o.frequency.setValueAtTime(330,t0); o.frequency.exponentialRampToValueAtTime(120,t0+0.09);
+  g.gain.setValueAtTime(0.0001,t0); g.gain.exponentialRampToValueAtTime(0.03,t0+0.005); g.gain.exponentialRampToValueAtTime(0.0001,t0+0.12);
+  o.connect(g); g.connect(bus); o.start(t0); o.stop(t0+0.14); }
+function sfxHitTick(){ if(audioMuted) return; const bus=sfxBus(); if(!bus) return; const a=_actx,t0=a.currentTime;
+  try{ const n=a.createBufferSource(); n.buffer=noiseBuffer(); const f=a.createBiquadFilter(),g=a.createGain(); f.type='highpass'; f.frequency.value=1900;
+    g.gain.setValueAtTime(0.028,t0); g.gain.exponentialRampToValueAtTime(0.0001,t0+0.06); n.connect(f); f.connect(g); g.connect(bus); n.start(t0); n.stop(t0+0.07); }catch(e){} }
+function sfxCrack(){ if(audioMuted) return; const bus=sfxBus(); if(!bus) return; const a=_actx,t0=a.currentTime;     // 陨石破碎
+  try{ const n=a.createBufferSource(); n.buffer=noiseBuffer(); const f=a.createBiquadFilter(),g=a.createGain(); f.type='bandpass'; f.Q.value=0.8;
+    f.frequency.setValueAtTime(1400,t0); f.frequency.exponentialRampToValueAtTime(400,t0+0.12);
+    g.gain.setValueAtTime(0.11,t0); g.gain.exponentialRampToValueAtTime(0.0001,t0+0.16); n.connect(f); f.connect(g); g.connect(bus); n.start(t0); n.stop(t0+0.18); }catch(e){}
+  const o=a.createOscillator(),og=a.createGain(); o.type='sine'; o.frequency.setValueAtTime(150,t0); o.frequency.exponentialRampToValueAtTime(70,t0+0.12);
+  og.gain.setValueAtTime(0.0001,t0); og.gain.exponentialRampToValueAtTime(0.09,t0+0.008); og.gain.exponentialRampToValueAtTime(0.0001,t0+0.18); o.connect(og); og.connect(bus); o.start(t0); o.stop(t0+0.2); }
+function sfxExplode(vol){ if(audioMuted) return; const bus=sfxBus(); if(!bus) return; const a=_actx,t0=a.currentTime,V=vol||0.26; // 敌舰爆炸
+  const o=a.createOscillator(),g=a.createGain(); o.type='sine'; o.frequency.setValueAtTime(180,t0); o.frequency.exponentialRampToValueAtTime(48,t0+0.3);
+  g.gain.setValueAtTime(0.0001,t0); g.gain.exponentialRampToValueAtTime(V,t0+0.01); g.gain.exponentialRampToValueAtTime(0.0001,t0+0.4); o.connect(g); g.connect(bus); o.start(t0); o.stop(t0+0.42);
+  try{ const n=a.createBufferSource(); n.buffer=noiseBuffer(); const f=a.createBiquadFilter(),ng=a.createGain(); f.type='lowpass';
+    f.frequency.setValueAtTime(2400,t0); f.frequency.exponentialRampToValueAtTime(300,t0+0.3);
+    ng.gain.setValueAtTime(V*0.8,t0); ng.gain.exponentialRampToValueAtTime(0.0001,t0+0.32); n.connect(f); f.connect(ng); ng.connect(bus); n.start(t0); n.stop(t0+0.34); }catch(e){} }
+function sfxHitShield(){ if(audioMuted) return; const bus=sfxBus(); if(!bus) return; const a=_actx,t0=a.currentTime;   // 护盾被击：清脆电响
+  const o=a.createOscillator(),g=a.createGain(); o.type='square'; o.frequency.setValueAtTime(620,t0); o.frequency.exponentialRampToValueAtTime(920,t0+0.05);
+  g.gain.setValueAtTime(0.0001,t0); g.gain.exponentialRampToValueAtTime(0.045,t0+0.005); g.gain.exponentialRampToValueAtTime(0.0001,t0+0.14); o.connect(g); g.connect(bus); o.start(t0); o.stop(t0+0.16); }
+function sfxHitHull(){ if(audioMuted) return; const bus=sfxBus(); if(!bus) return; const a=_actx,t0=a.currentTime;     // 船体被击穿：闷重撞击
+  const o=a.createOscillator(),g=a.createGain(); o.type='sine'; o.frequency.setValueAtTime(110,t0); o.frequency.exponentialRampToValueAtTime(48,t0+0.18);
+  g.gain.setValueAtTime(0.0001,t0); g.gain.exponentialRampToValueAtTime(0.16,t0+0.008); g.gain.exponentialRampToValueAtTime(0.0001,t0+0.26); o.connect(g); g.connect(bus); o.start(t0); o.stop(t0+0.28);
+  try{ const n=a.createBufferSource(); n.buffer=noiseBuffer(); const f=a.createBiquadFilter(),ng=a.createGain(); f.type='lowpass'; f.frequency.value=700;
+    ng.gain.setValueAtTime(0.09,t0); ng.gain.exponentialRampToValueAtTime(0.0001,t0+0.14); n.connect(f); f.connect(ng); ng.connect(bus); n.start(t0); n.stop(t0+0.16); }catch(e){} haptic([35]); }
+function sfxDash(){ if(audioMuted) return; const bus=sfxBus(); if(!bus) return; const a=_actx,t0=a.currentTime;        // 脉冲冲刺：风声 + 引擎轰鸣
+  try{ const n=a.createBufferSource(); n.buffer=noiseBuffer(); const f=a.createBiquadFilter(),g=a.createGain(); f.type='bandpass'; f.Q.value=0.9;
+    f.frequency.setValueAtTime(300,t0); f.frequency.exponentialRampToValueAtTime(1800,t0+0.18); f.frequency.exponentialRampToValueAtTime(500,t0+0.4);
+    g.gain.setValueAtTime(0.0001,t0); g.gain.exponentialRampToValueAtTime(0.13,t0+0.05); g.gain.exponentialRampToValueAtTime(0.0001,t0+0.42); n.connect(f); f.connect(g); g.connect(bus); n.start(t0); n.stop(t0+0.44); }catch(e){}
+  const o=a.createOscillator(),og=a.createGain(); o.type='sawtooth'; o.frequency.setValueAtTime(70,t0); o.frequency.exponentialRampToValueAtTime(160,t0+0.18); o.frequency.exponentialRampToValueAtTime(80,t0+0.42);
+  og.gain.setValueAtTime(0.0001,t0); og.gain.exponentialRampToValueAtTime(0.10,t0+0.04); og.gain.exponentialRampToValueAtTime(0.0001,t0+0.44); o.connect(og); og.connect(bus); o.start(t0); o.stop(t0+0.46); haptic([45]); }
+function sfxEMP(){ if(audioMuted) return; const bus=sfxBus(); if(!bus) return; const a=_actx,t0=a.currentTime;          // 静默航行：电磁脉动
+  const o=a.createOscillator(),g=a.createGain(); o.type='sine'; o.frequency.setValueAtTime(900,t0); o.frequency.exponentialRampToValueAtTime(180,t0+0.25);
+  g.gain.setValueAtTime(0.0001,t0); g.gain.exponentialRampToValueAtTime(0.055,t0+0.01); g.gain.exponentialRampToValueAtTime(0.0001,t0+0.3); o.connect(g); g.connect(bus); o.start(t0); o.stop(t0+0.32); }
+
+/* ===================================================================
+ *  ★ 背景音乐层（生成式自适应）：A 小调五声音阶的稀疏氛围乐，
+ *    随 combatHeat 升温——平静时高处微光、低音缓慢；战斗时加密 + 软底鼓 + 低音脉冲。
+ *    经 _musicGain → _sfxGain 总线，受 M 静音控制；坐在音效之下，不抢戏。
+ * =================================================================== */
+let _musicGain=null, _musicNext=0, _musicStep=0;
+function musicBus(){ const bus=sfxBus(); if(!bus) return null; if(!_musicGain){ _musicGain=_actx.createGain(); _musicGain.gain.value=0.5; _musicGain.connect(bus); } return _musicGain; }
+const MUS_SCALE=[220,261.63,293.66,329.63,392.00, 440,523.25,587.33,659.25,783.99]; // A 小调五声 × 两个八度
+const MUS_BASS=[110,130.81,146.83,164.81];
+function musicNote(t,freq,dur,vol,type){ const mb=musicBus(); if(!mb) return; const a=_actx,o=a.createOscillator(),g=a.createGain(),f=a.createBiquadFilter();
+  o.type=type||'triangle'; o.frequency.value=freq; f.type='lowpass'; f.frequency.value=1700;
+  g.gain.setValueAtTime(0.0001,t); g.gain.exponentialRampToValueAtTime(vol,t+0.05); g.gain.exponentialRampToValueAtTime(0.0001,t+dur);
+  o.connect(f); f.connect(g); g.connect(mb); o.start(t); o.stop(t+dur+0.05); }
+function musicKick(t,vol){ const mb=musicBus(); if(!mb) return; const a=_actx,o=a.createOscillator(),g=a.createGain();
+  o.type='sine'; o.frequency.setValueAtTime(120,t); o.frequency.exponentialRampToValueAtTime(45,t+0.12);
+  g.gain.setValueAtTime(0.0001,t); g.gain.exponentialRampToValueAtTime(vol,t+0.005); g.gain.exponentialRampToValueAtTime(0.0001,t+0.18); o.connect(g); g.connect(mb); o.start(t); o.stop(t+0.2); }
+function musicStep(t,step,heat){
+  if(step%4===0) musicNote(t, MUS_BASS[((step/4)|0)%4], heat>0.4?0.45:0.95, 0.09+heat*0.05, 'sine');        // 低音脉冲
+  if(heat>0.4 && step%2===0) musicKick(t, 0.10+heat*0.12);                                                  // 战斗：软底鼓
+  if(Math.random() < 0.26+heat*0.5){ const lo=heat>0.5?0:4; musicNote(t, MUS_SCALE[lo+((Math.random()*6)|0)], 0.55, 0.045+heat*0.04, 'triangle'); } // 旋律
+  if(heat<0.3 && Math.random()<0.16) musicNote(t, MUS_SCALE[5+((Math.random()*5)|0)], 0.9, 0.03, 'sine');   // 平静：高处微光
+}
+function updateMusic(){
+  if(!_actx || audioMuted) return;
+  const k=S.kind, on=(k==='menu' || /^ch[1-6]$/.test(k)) && S.phase!=='meta' && S.phase!=='finalq';
+  if(!on){ _musicNext=0; return; }
+  const heat=(k==='menu')?0:clamp(combatHeat,0,1), now=_actx.currentTime;
+  if(_musicNext<now) _musicNext=now+0.05;
+  let guard=0;
+  while(_musicNext < now+0.25 && guard++<8){ musicStep(_musicNext, _musicStep++, heat); _musicNext += lerp(0.62,0.34,heat); }
+}
 
 // ---------- 章节解锁 + 存档（保留上一章的完整度/部件/选择，跨会话持久化） ----------
 let unlockedChapter=1, checkpoints={};
@@ -1729,7 +1804,7 @@ function triggerPulse(){
   if (!S.pulse || S.pulse.cd>0) return;
   S.pulse.active=true; S.pulse.t=420; S.pulse.cd=5000;     // 爆发 0.42s · 冷却 5s
   fx.shake=10; fx.spike=Math.min(1,fx.spike+0.4);
-  dlog('ROAR'); // 引擎轰鸣
+  sfxDash(); dlog('ROAR'); // 引擎轰鸣
   // ★ 应用场景：冲刺撞碎挡路陨石（见 updateMeteors）；但轰鸣暴露行踪 → 敌舰立刻齐射
   if (S.enemies) for (const e of S.enemies) e.fireCd=Math.min(e.fireCd,120);
   toast('‹脉冲冲刺› 轰鸣——冲刺期间无敌，可穿弹幕躲避；但轰鸣会引来敌舰齐射！', COL.glitch, 2200);
@@ -4496,6 +4571,7 @@ function update(dt){
   combatHeat += (heatTarget-combatHeat)*Math.min(1,dt*0.0016);
   for(let i=bursts.length-1;i>=0;i--){ const b=bursts[i]; b.r+=dt*0.07; b.a-=dt*0.0026; if(b.a<=0) bursts.splice(i,1); }
   updateAmbient();
+  updateMusic();          // ★ 生成式背景音乐层（随 combatHeat 自适应）
   maybeScarWhisper();   // ★ 轮回的伤疤：到达上一世曾交出部件的章节 → 低语一句
   S.toasts=S.toasts.filter(t=>(t.t+=dt)<t.life);
   fx.glitch=lerp(fx.glitch,targetGlitch(),0.05);
