@@ -1174,7 +1174,8 @@ function toggleColorblind(){ colorblind=!colorblind; try{ localStorage.setItem('
 function canPause(){ return paused || (S.phase==='explore' && /^ch[1-6]$/.test(S.kind)); }
 function togglePause(){ if(!canPause()) return; paused=!paused; playBlip(paused?300:540,0.05); }
 function ensureAudio(){ try{ if(!_actx) _actx=new (window.AudioContext||window.webkitAudioContext)(); if(_actx.state==='suspended') _actx.resume(); }catch(e){} }
-function startAmbient(){ // 大提琴层 + 合成器层，按自我完整性交叉淡化（呼应原案配乐设定）
+function startAmbient(){ /* ★ 已删去持续「嗡嗡」环境铺底层（大提琴/合成器 drone 太吵）——氛围改由生成式音乐层(updateMusic)承担 */ }
+function _startAmbient_DISABLED(){
   ensureAudio(); if(!_actx||_amb) return;
   const a=_actx, master=a.createGain(); master.gain.value=audioMuted?0:1; master.connect(a.destination);
   const warm=a.createGain(); warm.gain.value=0; warm.connect(master);
