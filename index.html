@@ -993,6 +993,7 @@ addEventListener('keydown',(e)=>{
   keys[k] = true;
   if (['arrowup','arrowdown','arrowleft','arrowright',' ','shift'].includes(k)) e.preventDefault();
   audioWake();
+  if (S.kind==='startgate'){ e.preventDefault(); audioWake(); startCinematic(); return; }   // ★ 启程门：手势解锁声音 → 进入冷开场
   if (S.kind==='cinematic'){ e.preventDefault(); cineSkip(); return; }   // ★ 冷开场：任意键跳过 / 启航
   if (S.phase==='finalq'){ if(S.fq && S.fq.stage==='reply' && (k==='e'||k==='enter'||k===' ')) advanceFinalReply(); return; } // ★ 终问：提问阶段交给输入框；回应阶段按键推进
   if (k==='m'){ toggleMute(); return; } // 静音切换
@@ -1074,6 +1075,7 @@ function advanceDone(){ // 通关结算 → 进入下一章（或回标题）
   else { newGame(); startMenu(); }
 }
 function handleClick(mx,my){   // 点击 / 触屏点按 统一入口
+  if (S.kind==='startgate'){ audioWake(); startCinematic(); return; }   // ★ 启程门：点击解锁声音 → 进入冷开场
   if (S.kind==='cinematic'){ cineSkip(); return; }   // ★ 冷开场：点击跳过 / 启航
   if (paused){
     for (let i=0;i<PBTN.length;i++){ if(hit(PBTN[i],mx,my)){
@@ -1197,7 +1199,8 @@ function updateAmbient(){
   _amb.cold.gain.setTargetAtTime((k*0.05+0.006 + heat*0.05)*base, t, 0.5);
   if(_amb.lp) _amb.lp.frequency.setTargetAtTime(820 + heat*1100, t, 0.4);
 }
-function toggleMute(){ audioMuted=!audioMuted; try{ if(_amb) _amb.master.gain.setTargetAtTime(audioMuted?0:1,_actx.currentTime,0.1); }catch(e){} }
+function toggleMute(){ audioMuted=!audioMuted; try{ if(_amb) _amb.master.gain.setTargetAtTime(audioMuted?0:1,_actx.currentTime,0.1);
+  if(typeof _sfxGain!=='undefined' && _sfxGain) _sfxGain.gain.setTargetAtTime(audioMuted?0:1,_actx.currentTime,0.05); }catch(e){} }
 /* ★ 全屏切换（F11 / 手柄左摇杆按下 L3）：标准 Fullscreen API，浏览器与 Tauri WebView 均支持 */
 function toggleFullscreen(){
   try{
@@ -1212,6 +1215,48 @@ function playBlip(freq,vol){ if(audioMuted) return; ensureAudio(); if(!_actx) re
 function spawnBurst(x,y,color){ bursts.push({x,y,r:4,a:1,color:color||COL.cyan}); }
 function collectFx(x,y,color,freq){ spawnBurst(x,y,color); playBlip(freq||860,0.09); } // 拾取：爆环 + 轻响
 function audioWake(){ ensureAudio(); startAmbient(); }
+
+/* ===================================================================
+ *  ★ 程序化音效引擎（无外部文件）：冲击 / 风声 / 上升音 / 标题轰鸣 / 低频铺底
+ *    全部经 _sfxGain 总线，受静音(M)控制；移动端附带 navigator.vibrate 触感「震动」。
+ * =================================================================== */
+let _sfxGain=null, _noiseBuf=null, _cineDrone=null;
+function sfxBus(){ ensureAudio(); if(!_actx) return null;
+  if(!_sfxGain){ _sfxGain=_actx.createGain(); _sfxGain.gain.value=audioMuted?0:1; _sfxGain.connect(_actx.destination); } return _sfxGain; }
+function noiseBuffer(){ if(_noiseBuf) return _noiseBuf; const a=_actx, b=a.createBuffer(1, Math.floor(a.sampleRate*0.5), a.sampleRate), d=b.getChannelData(0);
+  for(let i=0;i<d.length;i++) d[i]=Math.random()*2-1; _noiseBuf=b; return _noiseBuf; }
+function haptic(p){ try{ if(navigator.vibrate && !reduceMotion) navigator.vibrate(p); }catch(e){} }
+function sfxBoom(vol){ if(audioMuted) return; const bus=sfxBus(); if(!bus) return; const a=_actx,t0=a.currentTime,V=vol||0.3;
+  const o=a.createOscillator(),g=a.createGain(); o.type='sine'; o.frequency.setValueAtTime(150,t0); o.frequency.exponentialRampToValueAtTime(42,t0+0.28);
+  g.gain.setValueAtTime(0.0001,t0); g.gain.exponentialRampToValueAtTime(V,t0+0.012); g.gain.exponentialRampToValueAtTime(0.0001,t0+0.46);
+  o.connect(g); g.connect(bus); o.start(t0); o.stop(t0+0.5);
+  try{ const n=a.createBufferSource(); n.buffer=noiseBuffer(); const nf=a.createBiquadFilter(),ng=a.createGain(); nf.type='lowpass'; nf.frequency.value=820;
+    ng.gain.setValueAtTime(V*0.5,t0); ng.gain.exponentialRampToValueAtTime(0.0001,t0+0.12); n.connect(nf); nf.connect(ng); ng.connect(bus); n.start(t0); n.stop(t0+0.13); }catch(e){} }
+function sfxWhoosh(vol){ if(audioMuted) return; const bus=sfxBus(); if(!bus) return; const a=_actx,t0=a.currentTime;
+  try{ const n=a.createBufferSource(); n.buffer=noiseBuffer(); const f=a.createBiquadFilter(),g=a.createGain(); f.type='bandpass'; f.Q.value=1.3;
+    f.frequency.setValueAtTime(380,t0); f.frequency.exponentialRampToValueAtTime(2400,t0+0.22);
+    g.gain.setValueAtTime(0.0001,t0); g.gain.exponentialRampToValueAtTime(vol||0.11,t0+0.04); g.gain.exponentialRampToValueAtTime(0.0001,t0+0.3);
+    n.connect(f); f.connect(g); g.connect(bus); n.start(t0); n.stop(t0+0.32); }catch(e){} }
+function sfxRiser(durMs,vol){ if(audioMuted) return; const bus=sfxBus(); if(!bus) return; const a=_actx,t0=a.currentTime,D=(durMs||2000)/1000,V=vol||0.06;
+  const o=a.createOscillator(),f=a.createBiquadFilter(),g=a.createGain(); o.type='sawtooth';
+  o.frequency.setValueAtTime(80,t0); o.frequency.exponentialRampToValueAtTime(520,t0+D);
+  f.type='lowpass'; f.frequency.setValueAtTime(280,t0); f.frequency.exponentialRampToValueAtTime(2400,t0+D);
+  g.gain.setValueAtTime(0.0001,t0); g.gain.exponentialRampToValueAtTime(V,t0+0.3); g.gain.setValueAtTime(V,t0+D-0.1); g.gain.exponentialRampToValueAtTime(0.0001,t0+D+0.05);
+  o.connect(f); f.connect(g); g.connect(bus); o.start(t0); o.stop(t0+D+0.1); }
+function sfxTitleHit(){ if(audioMuted) return; const bus=sfxBus(); if(!bus) return; const a=_actx,t0=a.currentTime;
+  sfxBoom(0.42);
+  [110,164.81,220,329.63].forEach(fr=>{ const o=a.createOscillator(),g=a.createGain(); o.type='triangle'; o.frequency.value=fr;
+    g.gain.setValueAtTime(0.0001,t0); g.gain.exponentialRampToValueAtTime(0.07,t0+0.05); g.gain.exponentialRampToValueAtTime(0.0001,t0+1.4);
+    o.connect(g); g.connect(bus); o.start(t0); o.stop(t0+1.5); });
+  try{ const n=a.createBufferSource(); n.buffer=noiseBuffer(); const f=a.createBiquadFilter(),g=a.createGain(); f.type='highpass'; f.frequency.value=3200;
+    g.gain.setValueAtTime(0.08,t0); g.gain.exponentialRampToValueAtTime(0.0001,t0+0.8); n.connect(f); f.connect(g); g.connect(bus); n.start(t0); n.stop(t0+0.85); }catch(e){} }
+function startCineDrone(){ if(audioMuted) return; const bus=sfxBus(); if(!bus||_cineDrone) return; const a=_actx,t0=a.currentTime;
+  const o=a.createOscillator(),o2=a.createOscillator(),g=a.createGain(),lp=a.createBiquadFilter();
+  o.type='sawtooth'; o.frequency.value=55; o2.type='sine'; o2.frequency.value=27.5; lp.type='lowpass'; lp.frequency.value=210;
+  g.gain.setValueAtTime(0.0001,t0); g.gain.exponentialRampToValueAtTime(0.05,t0+2.5);
+  o.connect(lp); o2.connect(lp); lp.connect(g); g.connect(bus); o.start(t0); o2.start(t0); _cineDrone={o:o,o2:o2,g:g}; }
+function stopCineDrone(){ try{ if(_cineDrone && _actx){ const d=_cineDrone, t0=_actx.currentTime; d.g.gain.setTargetAtTime(0.0001,t0,0.25);
+  setTimeout(function(){ try{ d.o.stop(); d.o2.stop(); }catch(e){} }, 700); _cineDrone=null; } }catch(e){} }
 
 // ---------- 章节解锁 + 存档（保留上一章的完整度/部件/选择，跨会话持久化） ----------
 let unlockedChapter=1, checkpoints={};
@@ -1710,32 +1755,53 @@ const DBTN = { x:W/2-200, y:215, w:400, h:30 };   // ★ 标题界面：难度�
  *    与图标/胶囊同款六边形船徽，开场即点题——给第一次游玩的人"眼前一亮 + 引人思考"。
  * =================================================================== */
 const CINE_TITLE_AT = 12200;
+/* ★ 启程门：冷开场前的一次点击/按键——既给音频解锁所需的用户手势，也作仪式感入口 */
+function startStartGate(){ S = { kind:'startgate', phase:'startgate', time:0, toasts:[] }; stopHum(); }
+function drawStartGate(){
+  canvas.style.filter='none';
+  ctx.fillStyle='#02040a'; ctx.fillRect(0,0,W,H);
+  for(const s of stars){ ctx.globalAlpha=s.a*0.7; ctx.fillStyle=COL.star; ctx.beginPath(); ctx.arc(s.x,s.y,s.r,0,6.283); ctx.fill(); } ctx.globalAlpha=1;
+  const cx=W/2, cy=H*0.42, R=58, br=1+0.03*Math.sin(S.time*0.004);
+  ctx.save(); ctx.lineWidth=3; ctx.strokeStyle='#5cf2a0'; ctx.shadowColor='rgba(92,242,160,0.8)'; ctx.shadowBlur=20; ctx.lineJoin='round';
+  ctx.beginPath(); for(let i=0;i<6;i++){ const a=(-90+i*60)*Math.PI/180, X=cx+Math.cos(a)*R*br, Y=cy+Math.sin(a)*R*br; i?ctx.lineTo(X,Y):ctx.moveTo(X,Y); } ctx.closePath(); ctx.stroke();
+  ctx.shadowColor='rgba(255,46,151,0.9)'; ctx.shadowBlur=24; ctx.fillStyle='#ff2e97'; ctx.beginPath(); ctx.arc(cx,cy,11*br,0,6.283); ctx.fill(); ctx.restore();
+  ftext('忒修斯之船 · 虚空回响', cx, H*0.62, 22, '"Microsoft YaHei",Georgia,serif', '#cfe3ff', 0.92);
+  const bl=Math.sin(S.time*0.005)>0;
+  ftext(bl?'▶ 点击 / 按任意键 · 启程':'点击 / 按任意键 · 启程', cx, H*0.74, 16, 'Georgia,"Microsoft YaHei",serif', bl?COL.ui:'#7fa6c8', 1);
+  ftext('（建议开启声音 🔊）', cx, H-40, 12, 'Georgia,"Microsoft YaHei",serif', '#5a7290', 0.85);
+}
 function startCinematic(){
   const cx=W/2, cy=H*0.40, R=64;
   S = { kind:'cinematic', phase:'cine', t:0, time:0, toasts:[],
         cx:cx, cy:cy, R:R, nodes:[], debris:[], incoming:[], detachIdx:0, reformIdx:0 };
   for(let i=0;i<6;i++){ const a=(-90+i*60)*Math.PI/180;
     S.nodes.push({ a:a, ox:cx+Math.cos(a)*R, oy:cy+Math.sin(a)*R, on:true, swapped:false }); }
-  stopHum();
+  S.cineHits={ appear:false, title:false, riser:false };
+  stopHum(); startCineDrone();                                // ★ 低频铺底，随冷开场推进
 }
 function cineSkip(){
   if (S.kind!=='cinematic') return;
   if (S.t < CINE_TITLE_AT){                                   // 第一次输入：快进到标题高光
     S.detachIdx=6; S.reformIdx=6; S.debris=[]; S.incoming=[];
     for(const n of S.nodes){ n.on=true; n.swapped=true; } S.t=CINE_TITLE_AT;
+    if(S.cineHits) S.cineHits.appear=true;                    // 跳过则不再补放「现形」音（标题轰鸣交给 update）
   } else endCinematic();                                      // 标题已出：再次输入 → 进入标题菜单
 }
-function endCinematic(){ try{ localStorage.setItem('theseus_seenCine','1'); }catch(e){} newGame(); startMenu(); }
+function endCinematic(){ stopCineDrone(); try{ localStorage.setItem('theseus_seenCine','1'); }catch(e){} newGame(); startMenu(); }
 function updateCinematic(dt){
   S.t+=dt; const t=S.t;   // S.time 由主循环统一递增
+  const H6=S.cineHits||(S.cineHits={appear:false,title:false,riser:false});
+  if (!H6.appear && t>=1300){ H6.appear=true; sfxBoom(0.16); fx.shake=Math.max(fx.shake,5); haptic([25]); } // 船徽现形：一记闷响 + 轻震
   const TEAR=[2400,2900,3400,3900,4400,4900], REF=[5700,6200,6700,7200,7700,8200];
   while(S.detachIdx<6 && t>=TEAR[S.detachIdx]){ const nd=S.nodes[S.detachIdx]; nd.on=false;
     const ang=nd.a+(Math.random()-0.5)*0.7, sp=0.10+Math.random()*0.07;
     S.debris.push({x:nd.ox,y:nd.oy,vx:Math.cos(ang)*sp,vy:Math.sin(ang)*sp,r:7,spin:Math.random()*6,va:(Math.random()-0.5)*0.012,life:3800});
-    fx.shake=Math.max(fx.shake,7); fx.spike=Math.min(1,fx.spike+0.22); S.detachIdx++; }
+    fx.shake=Math.max(fx.shake,7); fx.spike=Math.min(1,fx.spike+0.22); sfxBoom(0.3); haptic([30]); S.detachIdx++; } // 零件崩离：冲击 + 震动
   while(S.reformIdx<6 && t>=REF[S.reformIdx]){ const nd=S.nodes[S.reformIdx], fromA=Math.random()*6.283;
     S.incoming.push({tx:nd.ox,ty:nd.oy,x:S.cx+Math.cos(fromA)*280,y:S.cy+Math.sin(fromA)*280,p:0,node:nd});
-    fx.spike=Math.min(1,fx.spike+0.12); S.reformIdx++; }
+    fx.spike=Math.min(1,fx.spike+0.12); sfxWhoosh(0.12); S.reformIdx++; }                                       // 新零件飞入：风声
+  if (!H6.riser && t>=9900){ H6.riser=true; sfxRiser(2300,0.06); }                                              // 提问段：上升音蓄势
+  if (!H6.title && t>=CINE_TITLE_AT){ H6.title=true; sfxTitleHit(); stopCineDrone(); fx.shake=Math.max(fx.shake,9); haptic([50,30,60]); } // 标题轰鸣 + 强震
   for(const d of S.debris){ d.x+=d.vx*dt; d.y+=d.vy*dt; d.spin+=d.va*dt; d.life-=dt; }
   S.debris=S.debris.filter(d=>d.life>0);
   for(const c of S.incoming){ if(c.p<1){ c.p=Math.min(1,c.p+dt/650); c.x=lerp(c.x,c.tx,0.14); c.y=lerp(c.y,c.ty,0.14);
@@ -2300,6 +2366,7 @@ const FLASHBACKS = [
 ];
 let _actx;
 function playGlass(){ // 量子核心启动：玻璃碎裂音（WebAudio 合成，无外部文件）
+  if(audioMuted) return;
   try{
     _actx=_actx||new (window.AudioContext||window.webkitAudioContext)();
     if(_actx.state==='suspended') _actx.resume();
@@ -2976,18 +3043,18 @@ const FINAL_DLG = [
 ];
 
 /* ---- 终章音效（AudioContext 合成，无外部文件） ---- */
-function playThump(freq,dur,vol){ try{ _actx=_actx||new (window.AudioContext||window.webkitAudioContext)(); if(_actx.state==='suspended')_actx.resume();
+function playThump(freq,dur,vol){ if(audioMuted) return; try{ _actx=_actx||new (window.AudioContext||window.webkitAudioContext)(); if(_actx.state==='suspended')_actx.resume();
   const a=_actx,t0=a.currentTime,o=a.createOscillator(),g=a.createGain(); o.type='sine'; o.frequency.value=freq;
   g.gain.setValueAtTime(0.0001,t0); g.gain.exponentialRampToValueAtTime(vol,t0+0.02); g.gain.exponentialRampToValueAtTime(0.0001,t0+dur);
   o.connect(g); g.connect(a.destination); o.start(t0); o.stop(t0+dur+0.05);
 }catch(e){} }
-function playEndTone(freq){ try{ _actx=_actx||new (window.AudioContext||window.webkitAudioContext)(); if(_actx.state==='suspended')_actx.resume();
+function playEndTone(freq){ if(audioMuted) return; try{ _actx=_actx||new (window.AudioContext||window.webkitAudioContext)(); if(_actx.state==='suspended')_actx.resume();
   if(_endTone){try{_endTone.stop()}catch(e){}}
   const a=_actx,o=a.createOscillator(),g=a.createGain(); o.type='sine'; o.frequency.value=freq; g.gain.value=0;
   o.connect(g); g.connect(a.destination); o.start(); g.gain.setTargetAtTime(0.05,a.currentTime,0.8); o._g=g; _endTone=o;
 }catch(e){} }
 function playCough(){ for(let i=0;i<3;i++) setTimeout(()=>playThump(34+Math.random()*8,0.3,0.22), i*520); } // 老人喘息般
-function playPiano(){ try{ _actx=_actx||new (window.AudioContext||window.webkitAudioContext)(); if(_actx.state==='suspended')_actx.resume();
+function playPiano(){ if(audioMuted) return; try{ _actx=_actx||new (window.AudioContext||window.webkitAudioContext)(); if(_actx.state==='suspended')_actx.resume();
   const a=_actx, notes=[523.25,659.25,783.99,1046.5,783.99,659.25,523.25];
   notes.forEach((f,i)=>{ const t0=a.currentTime+i*0.32, o=a.createOscillator(), g=a.createGain(); o.type='triangle'; o.frequency.value=f;
     g.gain.setValueAtTime(0.0001,t0); g.gain.exponentialRampToValueAtTime(0.16,t0+0.03); g.gain.exponentialRampToValueAtTime(0.0001,t0+0.5);
@@ -4435,6 +4502,7 @@ function update(dt){
   fx.spike=Math.max(0,fx.spike-dt*0.002);
   fx.shake=Math.max(0,fx.shake-dt*0.03);
   fx.flash=Math.max(0,fx.flash-dt*0.003);
+  if (S.kind==='startgate') return;                           // ★ 启程门：仅等待手势（S.time 仍递增供脉动）
   if (S.kind==='cinematic'){ updateCinematic(dt); return; }   // ★ 电影化冷开场
   if (S.phase==='finalq'){ updateFinalQ(dt); return; }        // ★ 终问「你的回答」
   if (S.kind==='ch1') updateCh1(dt);
@@ -4460,6 +4528,7 @@ function update(dt){
   if (S.hitFlash>0) S.hitFlash=Math.max(0,S.hitFlash-dt*0.0035);
 }
 function draw(){
+  if (S.kind==='startgate'){ drawStartGate(); return; }   // ★ 启程门：全屏接管
   if (S.kind==='cinematic'){ drawCinematic(); return; }   // ★ 电影化冷开场：全屏接管
   if (S.phase==='finalq'){ drawFinalQ(); return; }        // ★ 终问：全屏接管（HTML 输入框覆盖其上）
   // 画风演变：鲜艳明亮 → 去饱和 / 变暗 / 发灰（随完整性丢失）
@@ -4644,9 +4713,9 @@ addEventListener('orientationchange', function(){ setTimeout(fitCanvas, 150); })
 // ★ 先把游戏跑起来，触屏初始化放最后并独立兜底——任何一步失败都不会黑屏
 newGame();
 try{ loadProgress(); }catch(e){ console.error('loadProgress', e); }
-// ★ 首次进入播放电影化冷开场；之后直接进标题（Shift+R 会清掉该标记以重看）
+// ★ 首次进入：先「启程」门（取得用户手势 → 解锁声音）再播放电影化冷开场；之后直接进标题（Shift+R 清掉标记可重看）
 var _seenCine=false; try{ _seenCine=localStorage.getItem('theseus_seenCine')==='1'; }catch(e){}
-if (_seenCine) startMenu(); else startCinematic();
+if (_seenCine) startMenu(); else startStartGate();
 fitCanvas();
 requestAnimationFrame(frame);
 try{ setupTouch(); }catch(e){ console.error('setupTouch', e); }
